@@ -1,8 +1,31 @@
+// Keys for localStorage
+const STORAGE_KEYS = {
+    RAFFLE_DATA: "raffleData", // Store all raffle data in one JSON object
+};
+
+// Save data to localStorage
+function saveToLocalStorage(data) {
+    localStorage.setItem(STORAGE_KEYS.RAFFLE_DATA, JSON.stringify(data));
+}
+
+// Load data from localStorage
+function loadFromLocalStorage() {
+    const data = localStorage.getItem(STORAGE_KEYS.RAFFLE_DATA);
+    return data ? JSON.parse(data) : null;
+}
+
+// Clear localStorage
+function clearLocalStorage() {
+    localStorage.removeItem(STORAGE_KEYS.RAFFLE_DATA);
+}
 
 // Variables to track raffle state
-let currentIndex = 0;
-let reversedWinners = [];
-let giftCards = [];
+let raffleData = {
+    attendees: [],
+    giftCards: [],
+    winners: [],
+    currentIndex: 0,
+};
 
 // Function to parse the .xlsx file and extract data
 async function parseExcelFile(file) {
@@ -64,6 +87,7 @@ async function getGiftCardDetails() {
     return giftCards;
 }
 
+// Function to render the gift card inventory
 function renderGiftCardInventory(giftCards) {
     const inventoryDiv = document.getElementById("giftCardInventory");
     inventoryDiv.innerHTML = ""; // Clear previous content
@@ -74,33 +98,30 @@ function renderGiftCardInventory(giftCards) {
         cardDiv.textContent = `Value: $${giftCard.value}, Remaining: ${giftCard.quantity}`;
         inventoryDiv.appendChild(cardDiv);
     });
-
-    console.log("Gift card inventory rendered.", giftCards); // Debug log
 }
 
-
 // Function to render the winner list
-function renderWinnerList(winners) {
+function renderWinnerList(winners, currentIndex) {
     const winnerListDiv = document.getElementById("winnerList");
     winnerListDiv.innerHTML = "";
-    winners.forEach((winner, index) => {
+    winners.slice(0, currentIndex).forEach((winner, index) => {
         const winnerDiv = document.createElement("div");
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
         checkbox.id = `winner-${index}`;
+        checkbox.checked = winner.checked || false; // Persist checkbox state
         checkbox.addEventListener("change", () => {
+            winner.checked = checkbox.checked; // Update state
+            saveToLocalStorage(raffleData); // Save updated winners
             const label = document.getElementById(`winnerLabel-${index}`);
-            if (checkbox.checked) {
-                label.style.textDecoration = "line-through";
-            } else {
-                label.style.textDecoration = "none";
-            }
+            label.style.textDecoration = checkbox.checked ? "line-through" : "none";
         });
 
         const label = document.createElement("label");
         label.id = `winnerLabel-${index}`;
         label.textContent = `${winner.name} - Prize: $${winner.prize}`;
         label.style.marginLeft = "10px";
+        label.style.textDecoration = winner.checked ? "line-through" : "none";
 
         winnerDiv.appendChild(checkbox);
         winnerDiv.appendChild(label);
@@ -128,24 +149,21 @@ function shuffle(array) {
     return array;
 }
 
-function updateGiftCardInventory(giftCards, prizeValue) {
-    // Find the gift card with the specified prize value
-    console.log(giftCards, prizeValue)
-    const giftCard = giftCards.find((card) => card.value === prizeValue);
-    if (giftCard && giftCards.quantity > 0) {
-        giftCards.quantity--; // Decrease the quantity of the selected gift card
-        console.log(`Updated gift card inventory: ${JSON.stringify(giftCards)}`); // Debug log
-        renderGiftCardInventory(giftCards); // Refresh the gift card inventory display
+// Function to update the gift card inventory
+function updateGiftCardInventory(prizeValue) {
+    const giftCard = raffleData.giftCards.find((card) => card.value === prizeValue);
+    if (giftCard && giftCard.quantity > 0) {
+        giftCard.quantity--; // Decrease the quantity of the selected gift card
+        saveToLocalStorage(raffleData); // Save updated state to localStorage
+        renderGiftCardInventory(raffleData.giftCards); // Refresh the inventory display
     } else {
-        console.warn(`Gift card with value $${prizeValue} not found or no remaining cards.`); // Debug warning
+        console.warn(`Gift card with value $${prizeValue} not found or no remaining cards.`);
     }
 }
 
 // Conduct the raffle with unique winners
 function drawUniqueWinners(tickets, giftCards) {
-    // Sort gift cards by value (highest first)
     const sortedGiftCards = [...giftCards].sort((a, b) => b.value - a.value);
-
     const shuffledTickets = shuffle(tickets);
     const winners = [];
     const winnersSet = new Set();
@@ -158,34 +176,26 @@ function drawUniqueWinners(tickets, giftCards) {
             } while (winnersSet.has(winner) && shuffledTickets.length > 0);
 
             if (winner && !winnersSet.has(winner)) {
-                winners.push({ name: winner, prize: card.value });
+                winners.push({ name: winner, prize: card.value, checked: false });
                 winnersSet.add(winner);
             }
         }
     });
+
     return winners;
 }
 
 // Function to show the next winner
 function showNextWinner() {
-    if (currentIndex < reversedWinners.length) {
-        const winner = reversedWinners[currentIndex];
+    if (raffleData.currentIndex < raffleData.winners.length) {
+        const winner = raffleData.winners[raffleData.currentIndex];
         alert(`Winner: ${winner.name}, Prize: $${winner.prize}`);
 
-        // Update gift card inventory
-        updateGiftCardInventory(giftCards, winner.prize);
+        updateGiftCardInventory(winner.prize);
 
-        currentIndex++;
-
-        // Update winner list dynamically
-        renderWinnerList(reversedWinners.slice(0, currentIndex));
-
-        // // Update gift card inventory dynamically
-        // const inventoryDiv = document.getElementById("giftCardInventory");
-        // inventoryDiv.children.forEach((child, index) => {
-        //     const remaining = reversedWinners.filter((w) => w.prize === giftCards[index].value).length;
-        //     child.textContent = `Value: $${giftCards[index].value}, Remaining: ${giftCards[index].quantity - remaining}`;
-        // });
+        raffleData.currentIndex++;
+        saveToLocalStorage(raffleData); // Save updated state to localStorage
+        renderWinnerList(raffleData.winners, raffleData.currentIndex);
     } else {
         alert("All winners have been revealed!");
     }
@@ -203,19 +213,31 @@ document.getElementById("uploadFile").addEventListener("change", async (event) =
             return;
         }
 
-        const attendees = await parseExcelFile(file);
-        const tickets = generateTickets(attendees);
-        giftCards = await getGiftCardDetails();
-        // Render initial gift card inventory
-        renderGiftCardInventory(giftCards);
+        raffleData.attendees = await parseExcelFile(file);
+        const tickets = generateTickets(raffleData.attendees);
+        raffleData.giftCards = await getGiftCardDetails();
+        renderGiftCardInventory(raffleData.giftCards);
 
-        const winners = drawUniqueWinners(tickets, giftCards);
-        reversedWinners = winners.reverse(); // Reverse for announcement order
+        raffleData.winners = drawUniqueWinners(tickets, raffleData.giftCards).reverse();
+        raffleData.currentIndex = 0;
 
+        saveToLocalStorage(raffleData); // Save initial state to localStorage
         alert("Raffle setup is complete! Click the button to reveal winners.");
         document.getElementById("revealButton").disabled = false;
     } catch (error) {
         console.error("Error loading file:", error);
         alert("Failed to load the file. Please check the console for details.");
+    }
+});
+
+// Load raffle data on page load
+window.addEventListener("load", () => {
+    const savedData = loadFromLocalStorage();
+    if (savedData) {
+        raffleData = savedData; // Restore raffle state
+        renderGiftCardInventory(raffleData.giftCards);
+        renderWinnerList(raffleData.winners, raffleData.currentIndex);
+        document.getElementById("revealButton").disabled =
+            raffleData.currentIndex >= raffleData.winners.length;
     }
 });
