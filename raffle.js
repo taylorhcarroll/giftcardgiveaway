@@ -14,7 +14,6 @@ async function parseExcelFile(file) {
                 return;
             }
 
-            // Convert the sheet to JSON
             const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
             // Skip header row and extract "Trivia Attendance" and "Name" columns
@@ -31,14 +30,76 @@ async function parseExcelFile(file) {
     });
 }
 
-// Simulate the gift card values
-const giftCards = [
-    { value: 50, quantity: 3 },
-    { value: 25, quantity: 5 },
-    { value: 10, quantity: 9 }
-];
+// Function to get gift card details to build a prize list
+async function getGiftCardDetails() {
+    const giftCards = [];
+    while (true) {
+        const value = prompt("Enter the gift card value (e.g., 50):");
+        const quantity = prompt("Enter the quantity of this gift card:");
+        if (!value || !quantity) {
+            alert("Both value and quantity are required. Please try again.");
+            continue;
+        }
 
-// Generate the ticket pool
+        const parsedValue = parseInt(value, 10);
+        const parsedQuantity = parseInt(quantity, 10);
+
+        if (isNaN(parsedValue) || isNaN(parsedQuantity) || parsedQuantity <= 0) {
+            alert("Invalid input. Value must be a number, and quantity must be a positive integer.");
+            continue;
+        }
+
+        giftCards.push({ value: parsedValue, quantity: parsedQuantity });
+
+        const addMore = confirm("Do you want to add more gift cards?");
+        if (!addMore) break;
+    }
+
+    return giftCards;
+}
+
+// Function to render the gift card inventory on the page
+function renderGiftCardInventory(giftCards) {
+    const inventoryDiv = document.getElementById("giftCardInventory");
+    inventoryDiv.innerHTML = "";
+    giftCards.forEach((giftCard, index) => {
+        const cardDiv = document.createElement("div");
+        cardDiv.id = `giftCard-${index}`;
+        cardDiv.textContent = `Value: $${giftCard.value}, Remaining: ${giftCard.quantity}`;
+        inventoryDiv.appendChild(cardDiv);
+    });
+}
+
+// Function to render the winner list
+function renderWinnerList(winners) {
+    const winnerListDiv = document.getElementById("winnerList");
+    winnerListDiv.innerHTML = "";
+    winners.forEach((winner, index) => {
+        const winnerDiv = document.createElement("div");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.id = `winner-${index}`;
+        checkbox.addEventListener("change", () => {
+            const label = document.getElementById(`winnerLabel-${index}`);
+            if (checkbox.checked) {
+                label.style.textDecoration = "line-through";
+            } else {
+                label.style.textDecoration = "none";
+            }
+        });
+
+        const label = document.createElement("label");
+        label.id = `winnerLabel-${index}`;
+        label.textContent = `${winner.name} - Prize: $${winner.prize}`;
+        label.style.marginLeft = "10px";
+
+        winnerDiv.appendChild(checkbox);
+        winnerDiv.appendChild(label);
+        winnerListDiv.appendChild(winnerDiv);
+    });
+}
+
+// Function to generate tickets
 function generateTickets(attendees) {
     const tickets = [];
     attendees.forEach((attendee) => {
@@ -58,13 +119,26 @@ function shuffle(array) {
     return array;
 }
 
+// Function to update the inventory when a winner is drawn
+function updateGiftCardInventory(giftCards, prizeValue) {
+    const giftCard = giftCards.find((card) => card.value === prizeValue);
+    if (giftCard) {
+        giftCard.quantity--;
+        renderGiftCardInventory(giftCards);
+    }
+}
+
+
 // Conduct the raffle with unique winners
 function drawUniqueWinners(tickets, giftCards) {
+    // Sort gift cards by value (highest first)
+    const sortedGiftCards = [...giftCards].sort((a, b) => b.value - a.value);
+
     const shuffledTickets = shuffle(tickets);
     const winners = [];
     const winnersSet = new Set();
 
-    giftCards.forEach((card) => {
+    sortedGiftCards.forEach((card) => {
         for (let i = 0; i < card.quantity; i++) {
             let winner;
             do {
@@ -80,15 +154,31 @@ function drawUniqueWinners(tickets, giftCards) {
     return winners;
 }
 
-// Display winners one at a time
+// Variables to track raffle state
 let currentIndex = 0;
 let reversedWinners = [];
+let giftCards = [];
 
+// Function to show the next winner
 function showNextWinner() {
     if (currentIndex < reversedWinners.length) {
         const winner = reversedWinners[currentIndex];
         alert(`Winner: ${winner.name}, Prize: $${winner.prize}`);
+
+        // // Update gift card inventory
+        // updateGiftCardInventory(giftCards, winner.prize);
+
         currentIndex++;
+
+        // Update winner list dynamically
+        renderWinnerList(reversedWinners.slice(0, currentIndex));
+
+        // Update gift card inventory dynamically
+        const inventoryDiv = document.getElementById("giftCardInventory");
+        inventoryDiv.children.forEach((child, index) => {
+            const remaining = reversedWinners.filter((w) => w.prize === giftCards[index].value).length;
+            child.textContent = `Value: $${giftCards[index].value}, Remaining: ${giftCards[index].quantity - remaining}`;
+        });
     } else {
         alert("All winners have been revealed!");
     }
@@ -108,11 +198,15 @@ document.getElementById("uploadFile").addEventListener("change", async (event) =
 
         const attendees = await parseExcelFile(file);
         const tickets = generateTickets(attendees);
-        const winners = drawUniqueWinners(tickets, giftCards);
+        const giftCards = await getGiftCardDetails();
 
+        // Render initial gift card inventory
+        renderGiftCardInventory(giftCards);
+
+        const winners = drawUniqueWinners(tickets, giftCards);
         reversedWinners = winners.reverse(); // Reverse for announcement order
+
         alert("Raffle setup is complete! Click the button to reveal winners.");
-        // Enable the reveal button
         document.getElementById("revealButton").disabled = false;
     } catch (error) {
         console.error("Error loading file:", error);
