@@ -20,6 +20,8 @@ function clearLocalStorage() {
     window.location.reload()
 }
 
+
+
 // Variables to track raffle state
 let raffleData = {
     attendees: [],
@@ -28,7 +30,7 @@ let raffleData = {
     currentIndex: 0,
 };
 
-// Function to parse the .xlsx file and extract data
+// Function to parse the .xlsx file and extract attendees and gift card inventory data
 async function parseExcelFile(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -36,56 +38,54 @@ async function parseExcelFile(file) {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: "array" });
 
-            // Target the sheet named "raffleTicketsHolidayParty"
-            const sheetName = "raffleTicketsHolidayParty";
-            const sheet = workbook.Sheets[sheetName];
-            if (!sheet) {
-                reject(new Error(`Sheet "${sheetName}" not found.`));
+            // Parse Attendees sheet (assumed to be named "raffleTicketsHolidayParty")
+            const attendeesSheetName = "raffleTicketsHolidayParty";
+            const attendeesSheet = workbook.Sheets[attendeesSheetName];
+            if (!attendeesSheet) {
+                reject(new Error(`Sheet "${attendeesSheetName}" not found.`));
                 return;
             }
 
-            const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            const attendeesData = XLSX.utils.sheet_to_json(attendeesSheet, { header: 1 });
 
             // Skip header row and extract "Trivia Attendance" and "Name" columns
-            const attendees = jsonData.slice(1).map((row) => {
+            const attendees = attendeesData.slice(1).map((row) => {
                 const triviaAttendance = parseInt(row[0], 10); // Column 1
                 const name = row[1]; // Column 2
                 return { name, attendance: triviaAttendance };
-            });
+            }).filter((attendee) => attendee.name && attendee.attendance);
 
-            resolve(attendees.filter((attendee) => attendee.name && attendee.attendance));
+            // Parse Gift Card Inventory sheet (assumed to be named "giftCardInventory")
+            const giftCardSheetName = "giftCardInventory";
+            const giftCardSheet = workbook.Sheets[giftCardSheetName];
+            if (!giftCardSheet) {
+                reject(new Error(`Sheet "${giftCardSheetName}" not found.`));
+                return;
+            }
+
+            const giftCardData = XLSX.utils.sheet_to_json(giftCardSheet, { header: 1 });
+            const giftCards = [];
+
+            // Extract gift card data from the header row and individual cells
+            const headers = giftCardData[0]; // First row contains the column names
+            for (let i = 0; i < headers.length; i++) {
+                const location = headers[i];
+                if (!location) continue;
+
+                // Sum up all the gift card values in the column, excluding the bottom total value
+                for (let j = 1; j < giftCardData.length - 1; j++) {
+                    const value = parseInt(giftCardData[j][i], 10);
+                    if (!isNaN(value) && value > 0) {
+                        giftCards.push({ value, location });
+                    }
+                }
+            }
+
+            resolve({ attendees, giftCards });
         };
         reader.onerror = (e) => reject(e);
         reader.readAsArrayBuffer(file);
     });
-}
-
-// Function to get gift card details to build a prize list
-async function getGiftCardDetails() {
-    const giftCards = [];
-    while (true) {
-        const value = prompt("Enter the gift card value (e.g., 50):");
-        const quantity = prompt("Enter the quantity of this gift card:");
-        if (!value || !quantity) {
-            alert("Both value and quantity are required. Please try again.");
-            continue;
-        }
-
-        const parsedValue = parseInt(value, 10);
-        const parsedQuantity = parseInt(quantity, 10);
-
-        if (isNaN(parsedValue) || isNaN(parsedQuantity) || parsedQuantity <= 0) {
-            alert("Invalid input. Value must be a number, and quantity must be a positive integer.");
-            continue;
-        }
-
-        giftCards.push({ value: parsedValue, quantity: parsedQuantity });
-
-        const addMore = confirm("Do you want to add more gift cards?");
-        if (!addMore) break;
-    }
-
-    return giftCards;
 }
 
 // Function to render the gift card inventory
@@ -93,12 +93,32 @@ function renderGiftCardInventory(giftCards) {
     const inventoryDiv = document.getElementById("giftCardInventory");
     inventoryDiv.innerHTML = ""; // Clear previous content
 
-    giftCards.forEach((giftCard, index) => {
-        const cardDiv = document.createElement("div");
-        cardDiv.id = `giftCard-${index}`;
-        cardDiv.textContent = `Value: $${giftCard.value}, Remaining: ${giftCard.quantity}`;
-        inventoryDiv.appendChild(cardDiv);
+    // Group gift cards by location and value
+    const groupedCards = {};
+    giftCards.forEach((card) => {
+        if (!groupedCards[card.location]) {
+            groupedCards[card.location] = {};
+        }
+        if (!groupedCards[card.location][card.value]) {
+            groupedCards[card.location][card.value] = 0;
+        }
+        groupedCards[card.location][card.value]++;
     });
+
+    // Render the grouped cards
+    for (const location in groupedCards) {
+        const locationDiv = document.createElement("div");
+        locationDiv.className = "location";
+        locationDiv.textContent = `Location: ${location}`;
+        inventoryDiv.appendChild(locationDiv);
+
+        for (const value in groupedCards[location]) {
+            const valueDiv = document.createElement("div");
+            valueDiv.className = "gift-card-value";
+            valueDiv.textContent = `- Value: $${value}, Remaining: ${groupedCards[location][value]}`;
+            inventoryDiv.appendChild(valueDiv);
+        }
+    }
 }
 
 // Function to render the winner list
@@ -120,7 +140,7 @@ function renderWinnerList(winners, currentIndex) {
 
         const label = document.createElement("label");
         label.id = `winnerLabel-${index}`;
-        label.textContent = `${winner.name} - Prize: $${winner.prize}`;
+        label.textContent = `${winner.name} - Prize: $${winner.value} from ${winner.location}`;
         label.style.marginLeft = "10px";
         label.style.textDecoration = winner.checked ? "line-through" : "none";
 
@@ -151,35 +171,37 @@ function shuffle(array) {
 }
 
 // Function to update the gift card inventory
-function updateGiftCardInventory(prizeValue) {
-    const giftCard = raffleData.giftCards.find((card) => card.value === prizeValue);
-    if (giftCard && giftCard.quantity > 0) {
-        giftCard.quantity--; // Decrease the quantity of the selected gift card
+function updateGiftCardInventory(winner) {
+    const index = raffleData.giftCards.findIndex(
+        (card) => card.value === winner.value && card.location === winner.location
+    );
+    if (index !== -1) {
+        raffleData.giftCards.splice(index, 1); // Remove the selected gift card
         saveToLocalStorage(raffleData); // Save updated state to localStorage
         renderGiftCardInventory(raffleData.giftCards); // Refresh the inventory display
     } else {
-        console.warn(`Gift card with value $${prizeValue} not found or no remaining cards.`);
+        console.warn(`Gift card with value $${winner.value} from ${winner.location} not found.`);
     }
 }
 
 // Conduct the raffle with unique winners
 function drawUniqueWinners(tickets, giftCards) {
+    // Sort gift cards by value (highest first)
     const sortedGiftCards = [...giftCards].sort((a, b) => b.value - a.value);
+
     const shuffledTickets = shuffle(tickets);
     const winners = [];
     const winnersSet = new Set();
 
     sortedGiftCards.forEach((card) => {
-        for (let i = 0; i < card.quantity; i++) {
-            let winner;
-            do {
-                winner = shuffledTickets.pop();
-            } while (winnersSet.has(winner) && shuffledTickets.length > 0);
+        let winner;
+        do {
+            winner = shuffledTickets.pop();
+        } while (winnersSet.has(winner) && shuffledTickets.length > 0);
 
-            if (winner && !winnersSet.has(winner)) {
-                winners.push({ name: winner, prize: card.value, checked: false });
-                winnersSet.add(winner);
-            }
+        if (winner && !winnersSet.has(winner)) {
+            winners.push({ name: winner, value: card.value, location: card.location, checked: false });
+            winnersSet.add(winner);
         }
     });
 
@@ -190,9 +212,9 @@ function drawUniqueWinners(tickets, giftCards) {
 function showNextWinner() {
     if (raffleData.currentIndex < raffleData.winners.length) {
         const winner = raffleData.winners[raffleData.currentIndex];
-        alert(`Winner: ${winner.name}, Prize: $${winner.prize}`);
+        alert(`Winner: ${winner.name}, Prize: $${winner.value} from ${winner.location}`);
 
-        updateGiftCardInventory(winner.prize);
+        updateGiftCardInventory(winner);
 
         raffleData.currentIndex++;
         saveToLocalStorage(raffleData); // Save updated state to localStorage
@@ -204,9 +226,8 @@ function showNextWinner() {
 
 // Attach the function to a button
 document.getElementById("revealButton").addEventListener("click", showNextWinner);
-// Attach the function to clear local storage
+// Attach the function to a button
 document.getElementById("clearStateButton").addEventListener("click", clearLocalStorage);
-
 
 // Load the .xlsx file and conduct the raffle
 document.getElementById("uploadFile").addEventListener("change", async (event) => {
@@ -217,12 +238,14 @@ document.getElementById("uploadFile").addEventListener("change", async (event) =
             return;
         }
 
-        raffleData.attendees = await parseExcelFile(file);
+        const { attendees, giftCards } = await parseExcelFile(file);
+        raffleData.attendees = attendees;
+        raffleData.giftCards = giftCards;
+
         const tickets = generateTickets(raffleData.attendees);
-        raffleData.giftCards = await getGiftCardDetails();
         renderGiftCardInventory(raffleData.giftCards);
 
-        raffleData.winners = drawUniqueWinners(tickets, raffleData.giftCards).reverse();
+        raffleData.winners = drawUniqueWinners(tickets, raffleData.giftCards).reverse(); // Reverse for announcement order
         raffleData.currentIndex = 0;
 
         saveToLocalStorage(raffleData); // Save initial state to localStorage
