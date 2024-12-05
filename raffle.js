@@ -17,6 +17,7 @@ function loadFromLocalStorage() {
 // Clear localStorage
 function clearLocalStorage() {
     localStorage.removeItem(STORAGE_KEYS.RAFFLE_DATA);
+    window.location.reload()
 }
 
 // Variables to track raffle state
@@ -203,6 +204,9 @@ function showNextWinner() {
 
 // Attach the function to a button
 document.getElementById("revealButton").addEventListener("click", showNextWinner);
+// Attach the function to clear local storage
+document.getElementById("clearStateButton").addEventListener("click", clearLocalStorage);
+
 
 // Load the .xlsx file and conduct the raffle
 document.getElementById("uploadFile").addEventListener("change", async (event) => {
