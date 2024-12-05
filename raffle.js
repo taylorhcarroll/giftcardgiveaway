@@ -1,3 +1,9 @@
+
+// Variables to track raffle state
+let currentIndex = 0;
+let reversedWinners = [];
+let giftCards = [];
+
 // Function to parse the .xlsx file and extract data
 async function parseExcelFile(file) {
     return new Promise((resolve, reject) => {
@@ -58,17 +64,20 @@ async function getGiftCardDetails() {
     return giftCards;
 }
 
-// Function to render the gift card inventory on the page
 function renderGiftCardInventory(giftCards) {
     const inventoryDiv = document.getElementById("giftCardInventory");
-    inventoryDiv.innerHTML = "";
+    inventoryDiv.innerHTML = ""; // Clear previous content
+
     giftCards.forEach((giftCard, index) => {
         const cardDiv = document.createElement("div");
         cardDiv.id = `giftCard-${index}`;
         cardDiv.textContent = `Value: $${giftCard.value}, Remaining: ${giftCard.quantity}`;
         inventoryDiv.appendChild(cardDiv);
     });
+
+    console.log("Gift card inventory rendered.", giftCards); // Debug log
 }
+
 
 // Function to render the winner list
 function renderWinnerList(winners) {
@@ -119,15 +128,18 @@ function shuffle(array) {
     return array;
 }
 
-// Function to update the inventory when a winner is drawn
 function updateGiftCardInventory(giftCards, prizeValue) {
+    // Find the gift card with the specified prize value
+    console.log(giftCards, prizeValue)
     const giftCard = giftCards.find((card) => card.value === prizeValue);
-    if (giftCard) {
-        giftCard.quantity--;
-        renderGiftCardInventory(giftCards);
+    if (giftCard && giftCards.quantity > 0) {
+        giftCards.quantity--; // Decrease the quantity of the selected gift card
+        console.log(`Updated gift card inventory: ${JSON.stringify(giftCards)}`); // Debug log
+        renderGiftCardInventory(giftCards); // Refresh the gift card inventory display
+    } else {
+        console.warn(`Gift card with value $${prizeValue} not found or no remaining cards.`); // Debug warning
     }
 }
-
 
 // Conduct the raffle with unique winners
 function drawUniqueWinners(tickets, giftCards) {
@@ -154,31 +166,26 @@ function drawUniqueWinners(tickets, giftCards) {
     return winners;
 }
 
-// Variables to track raffle state
-let currentIndex = 0;
-let reversedWinners = [];
-let giftCards = [];
-
 // Function to show the next winner
 function showNextWinner() {
     if (currentIndex < reversedWinners.length) {
         const winner = reversedWinners[currentIndex];
         alert(`Winner: ${winner.name}, Prize: $${winner.prize}`);
 
-        // // Update gift card inventory
-        // updateGiftCardInventory(giftCards, winner.prize);
+        // Update gift card inventory
+        updateGiftCardInventory(giftCards, winner.prize);
 
         currentIndex++;
 
         // Update winner list dynamically
         renderWinnerList(reversedWinners.slice(0, currentIndex));
 
-        // Update gift card inventory dynamically
-        const inventoryDiv = document.getElementById("giftCardInventory");
-        inventoryDiv.children.forEach((child, index) => {
-            const remaining = reversedWinners.filter((w) => w.prize === giftCards[index].value).length;
-            child.textContent = `Value: $${giftCards[index].value}, Remaining: ${giftCards[index].quantity - remaining}`;
-        });
+        // // Update gift card inventory dynamically
+        // const inventoryDiv = document.getElementById("giftCardInventory");
+        // inventoryDiv.children.forEach((child, index) => {
+        //     const remaining = reversedWinners.filter((w) => w.prize === giftCards[index].value).length;
+        //     child.textContent = `Value: $${giftCards[index].value}, Remaining: ${giftCards[index].quantity - remaining}`;
+        // });
     } else {
         alert("All winners have been revealed!");
     }
@@ -198,8 +205,7 @@ document.getElementById("uploadFile").addEventListener("change", async (event) =
 
         const attendees = await parseExcelFile(file);
         const tickets = generateTickets(attendees);
-        const giftCards = await getGiftCardDetails();
-
+        giftCards = await getGiftCardDetails();
         // Render initial gift card inventory
         renderGiftCardInventory(giftCards);
 
